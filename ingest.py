@@ -44,7 +44,7 @@ def fetch_documents():
         print(f"Loaded {len(documents)} documents")
         return documents
     
-# Chunking prompt template
+# Chunking instruction template
 def _make_prompt(document):
     how_many = (len(document["text"]) // config.AVERAGE_CHUNK_SIZE) + 1
     return f"""
@@ -61,3 +61,19 @@ Document:
 
 Respond with the chunks.
 """ 
+
+# Process a single document to create chunks, with caching and retry logic
+@retry(wait=WAIT)
+def process_document(document):
+    key = hashlib.sha1((document["source"] + document["text"]).encode()).hexdigest()
+    cached = config.CHUNK_CACHE / f"{key}.json"
+    if cached.exists():
+        return json.loads(cached.read_text())
+
+    resp = completion(model=config.CHUNK_MODEL,
+                      messages=[{"role": "user", "content": _make_prompt(document)}],
+                      response_format=Chunks)
+    parsed = Chunks.model_validate_json(resp.choices[0].message.content).chunks
+    results = [c.as_result(document) for c in parsed]
+    cached.write_text(json.dumps(results))
+    return results
