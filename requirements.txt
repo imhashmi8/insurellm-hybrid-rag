@@ -1,0 +1,11 @@
+openai
+litellm
+chromadb
+pydantic
+gradio
+tenacity
+tqdm
+python-dotenv
+rank-bm25
+pandas
+tiktoken
