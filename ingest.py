@@ -26,3 +26,38 @@ class Chunk(BaseModel):
 class Chunks(BaseModel):
     chunks: list[Chunk]
 
+
+# Function to fetch documents from the knowledge base
+def fetch_documents():
+    documents = []
+
+    for folder in config.KB_PATH.iterdir():
+        if not folder.is_dir():
+            continue
+        for file in folder.rglob("*.md"):
+            documents.append({
+                "type": folder.name,
+                "source": file.relative_to(config.KB_PATH).as_posix(),
+                "text": file.read_text(encoding="utf-8"),
+            })
+        
+        print(f"Loaded {len(documents)} documents")
+        return documents
+    
+# Chunking prompt template
+def _make_prompt(document):
+    how_many = (len(document["text"]) // config.AVERAGE_CHUNK_SIZE) + 1
+    return f"""
+You split a document into overlapping chunks for a knowledge base.
+The document is from the shared drive of a company called Insurellm.
+Type: {document["type"]}  Source: {document["source"]}
+A chatbot will use these chunks to answer questions about Insurellm.
+Split the whole document - leave nothing out. Aim for about {how_many} chunks (use judgement),
+with ~25% overlap so the same text appears in adjacent chunks for best retrieval.
+For each chunk give a headline, a summary, and the original text.
+
+Document:
+{document["text"]}
+
+Respond with the chunks.
+""" 
