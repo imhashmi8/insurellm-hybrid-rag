@@ -77,3 +77,36 @@ def process_document(document):
     results = [c.as_result(document) for c in parsed]
     cached.write_text(json.dumps(results))
     return results
+
+# Create chunks for all documents using multiprocessing
+def create_chunks(documents):
+    chunks = []
+    with Pool(processes=WORKERS) as pool:
+        for res in tqdm(pool.imap_unordered(process_document, documents), total=len(documents)):
+            chunks.extend(res)
+    return chunks
+
+
+
+# Create embeddings for the chunks and store them in a vector database
+def create_embeddings(chunks):
+    chroma = PersistentClient(path=config.DB_NAME)
+    if config.COLLECTION in [c.name for c in chroma.list_collections()]:
+        chroma.delete_collection(config.COLLECTION)
+    collection = chroma.get_or_create_collection(config.COLLECTION)
+
+    texts = [c["page_content"] for c in chunks]
+    metas = [c["metadata"] for c in chunks]
+    ids = [str(i) for i in range(len(chunks))]
+
+    for i in range(0, len(texts), config.EMBED_BATCH):
+        sl = slice(i, i + config.EMBED_BATCH)
+        vectors = [e.embedding for e in
+                   openai.embeddings.create(model=config.EMBED_MODEL, input=texts[sl]).data]
+        collection.add(ids=ids[sl], embeddings=vectors, documents=texts[sl], metadatas=metas[sl])
+    print(f"Vectorstore created with {collection.count()} chunks")
+
+if __name__ == "__main__":
+    docs = fetch_documents()
+    create_embeddings(create_chunks(docs))
+    print("Ingestion complete")
