@@ -50,3 +50,62 @@ def rrf(rankings, k=60):
     return sorted(scores, key=scores.get, reverse=True)
 
 
+@retry(wait=WAIT)
+def rewrite_query(question, history=[]):
+    prompt = f"""
+You are answering questions about the company Insurellm and are about to search a knowledge base.
+Conversation so far:
+{history}
+Current question:
+{question}
+Respond ONLY with a short, specific search query most likely to surface the relevant content.
+"""
+    return completion(model=config.GEN_MODEL,
+                      messages=[{"role": "system", "content": prompt}]).choices[0].message.content
+
+
+@retry(wait=WAIT)
+def _llm_rerank(question, chunks):
+    system = ("You are a document re-ranker. Re-order the retrieved chunks most-relevant first. "
+              "Reply only with the list of ranked chunk ids, including every id you were given.")
+    user = f"Question:\n\n{question}\n\nRe-order all chunks by relevance.\n\nChunks:\n\n"
+    for i, c in enumerate(chunks, 1):
+        user += f"# CHUNK ID: {i}:\n\n{c.page_content}\n\n"
+    resp = completion(model=config.GEN_MODEL,
+                      messages=[{"role": "system", "content": system},
+                                {"role": "user", "content": user}],
+                      response_format=RankOrder)
+    order = RankOrder.model_validate_json(resp.choices[0].message.content).order
+
+    seen, ranked = set(), []
+    for i in order:
+        if 1 <= i <= len(chunks) and i not in seen:
+            ranked.append(chunks[i - 1]); seen.add(i)
+    for idx, c in enumerate(chunks, 1):
+        if idx not in seen:
+            ranked.append(c)
+    return ranked
+
+
+@functools.lru_cache(maxsize=1)
+def _cross_encoder():
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder("BAAI/bge-reranker-base")
+
+def _cross_rerank(question, chunks):
+    scores = _cross_encoder().predict([(question, c.page_content) for c in chunks])
+    return [c for _, c in sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)]
+
+def rerank(question, chunks):
+    return _cross_rerank(question, chunks) if config.RERANKER == "cross" else _llm_rerank(question, chunks)
+
+
+def fetch_context(question, history=[]):
+    rewritten = rewrite_query(question, history)
+    fused = rrf([
+        dense_search(question, config.RETRIEVAL_K),
+        dense_search(rewritten, config.RETRIEVAL_K),
+        sparse_search(question, config.RETRIEVAL_K),
+    ])[:config.RETRIEVAL_K]
+    chunks = [_id_to_result[i] for i in fused]
+    return rerank(question, chunks)[:config.FINAL_K]
