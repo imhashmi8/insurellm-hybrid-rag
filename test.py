@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from pydantic import BaseModel, Field
 
-TEST_FILE = str(Path(__file__).parent.parent / "evaluation" / "tests.jsonl")
+TEST_FILE = str(Path(__file__).parent / "evaluation" / "tests.jsonl")
 
 class TestQuestion(BaseModel):
     question: str
