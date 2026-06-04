@@ -26,8 +26,8 @@ JUDGE_MODEL  = os.getenv("JUDGE_MODEL", "openai/gpt-4.1-nano")
 # Retriever configuration
 
 AVERAGE_CHUNK_SIZE = 800
-RETRIEVE_K = 20
-FINAL_K = 10
+RETRIEVE_K = 10
+FINAL_K = 5
 RERANKER = os.getenv("RERANKER", "llm")
 EMBED_BATCH = 100
 CHUNK_CACHE.mkdir(exist_ok=True)
