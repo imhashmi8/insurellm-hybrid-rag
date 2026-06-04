@@ -5,6 +5,9 @@
 chunk_cache/
 preprocessed_db/
 
+# Evaluation data
+evaluation/
+
 # Python
 venv/
 __pycache__/
