@@ -97,14 +97,16 @@ def _cross_rerank(question, chunks):
     return [c for _, c in sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)]
 
 def rerank(question, chunks):
-    return _cross_rerank(question, chunks) if config.RERANKER == "cross" else _llm_rerank(question, chunks)
+    if config.RERANKER == "cross":
+        return _cross_rerank(question, chunks)
+    if config.RERANKER == "llm":
+        return _llm_rerank(question, chunks)
+    return chunks
 
 
-def fetch_context(question, history=[]):
-    rewritten = rewrite_query(question, history)
+def fetch_context(question, history=None):
     fused = rrf([
         dense_search(question, config.RETRIEVE_K),
-        dense_search(rewritten, config.RETRIEVE_K),
         sparse_search(question, config.RETRIEVE_K),
     ])[:config.RETRIEVE_K]
     chunks = [_id_to_result[i] for i in fused]
