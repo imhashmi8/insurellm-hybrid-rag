@@ -10,7 +10,7 @@ load_dotenv(override=True)
 
 # Path to the directory containing the data files
 ROOT = Path(__file__).parent
-KB_PATH = ROOT.parent / "knowledge_base"
+KB_PATH = ROOT / "knowledge-base"
 DB_NAME = str(ROOT / "preprocessed_db")
 CHUNK_CACHE = ROOT / "chunk_cache"
 COLLECTION = "docs"
