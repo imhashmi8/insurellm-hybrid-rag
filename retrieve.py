@@ -103,9 +103,9 @@ def rerank(question, chunks):
 def fetch_context(question, history=[]):
     rewritten = rewrite_query(question, history)
     fused = rrf([
-        dense_search(question, config.RETRIEVAL_K),
-        dense_search(rewritten, config.RETRIEVAL_K),
-        sparse_search(question, config.RETRIEVAL_K),
-    ])[:config.RETRIEVAL_K]
+        dense_search(question, config.RETRIEVE_K),
+        dense_search(rewritten, config.RETRIEVE_K),
+        sparse_search(question, config.RETRIEVE_K),
+    ])[:config.RETRIEVE_K]
     chunks = [_id_to_result[i] for i in fused]
     return rerank(question, chunks)[:config.FINAL_K]
