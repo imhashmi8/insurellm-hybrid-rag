@@ -15,7 +15,7 @@ def label():
         best = max(files, key=lambda s: _score(files[s], terms))
         row = t.model_dump(); row["source"] = best
         rows.append(row)
-    out = str(config.ROOT.parent / "evaluation" / "tests.jsonl")
+    out = str(config.ROOT / "evaluation" / "tests.jsonl")
     with open(out, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
