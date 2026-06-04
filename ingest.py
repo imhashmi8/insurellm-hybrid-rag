@@ -45,8 +45,8 @@ def fetch_documents():
                 "text": file.read_text(encoding="utf-8"),
             })
         
-        print(f"Loaded {len(documents)} documents")
-        return documents
+    print(f"Loaded {len(documents)} documents")
+    return documents
     
 # Chunking instruction template
 def _make_prompt(document):
