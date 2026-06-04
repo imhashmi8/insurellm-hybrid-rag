@@ -4,11 +4,15 @@ import json, hashlib
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from chromadb import PersistentClient
-from tqdb import tqdm
+from tqdm import tqdm
 from litellm import completion
 from multiprocessing import Pool
 from tenacity import retry, wait_exponential
 import config
+
+WAIT = wait_exponential(multiplier=1, min=10, max=240)
+WORKERS = 4
+openai = OpenAI()
 
 # Chunk model definition
 class Chunk(BaseModel):
