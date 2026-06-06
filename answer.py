@@ -3,7 +3,10 @@ from tenacity import retry, wait_exponential
 import config
 from retrieve import fetch_context
 
+# Back off on rate-limit or transient API errors rather than failing the whole request
 WAIT = wait_exponential(multiplier=1, min=10, max=240)
+
+# Instruct the model to stay grounded in the retrieved context so it doesn't hallucinate
 SYSTEM_PROMPT = """
 You are a knowledgeable, friendly assistant representing the company Insurellm.
 Your answer is evaluated for accuracy, relevance and completeness, so only answer the question
@@ -15,6 +18,7 @@ Relevant extracts from the Knowledge Base:
 """
 
 
+# Format retrieved chunks as labelled extracts so the model knows exactly which source each claim comes from
 def _messages(question, history, chunks):
     context = "\n\n".join(
         f"Extract from {c.metadata['source']}:\n{c.page_content}" for c in chunks
@@ -23,8 +27,7 @@ def _messages(question, history, chunks):
             + history + [{"role": "user", "content": question}])
 
 
-
-
+# Retry on transient failures; fetch the most relevant chunks before generating to keep the answer grounded
 @retry(wait=WAIT)
 def answer_question(question, history=[]):
     chunks = fetch_context(question, history)

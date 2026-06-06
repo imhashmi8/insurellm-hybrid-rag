@@ -8,20 +8,26 @@ import config
 from test import TestQuestion, load_tests
 from answer import answer_question, fetch_context
 
+# Structured output so the judge returns machine-readable scores rather than prose
 class RetrievalEval(BaseModel):
     mrr: float; ndcg: float; hit_rate: float; keyword_coverage: float
 
+# Structured output so the judge scores are directly usable without parsing free text
 class AnswerEval(BaseModel):
     feedback: str = Field(description="Concise feedback vs the reference answer")
     accuracy: float = Field(description="1 (wrong) to 5 (perfect). Any wrong answer scores 1.")
     completeness: float = Field(description="1 to 5. Only 5 if ALL reference info is present.")
     relevance: float = Field(description="1 to 5. Only 5 if on-topic with no extra info.")
 
+# DCG helper used by nDCG, penalises relevant results that appear lower in the ranking
 def _dcg(rels): return sum(r / math.log2(i + 2) for i, r in enumerate(rels))
 
 
+# Measure how well the retrieval pipeline surfaces the gold-labelled source document
 def evaluate_retrieval(test: TestQuestion, k=config.FINAL_K) -> RetrievalEval:
     docs = fetch_context(test.question)[:k]
+
+    # Keyword coverage catches cases where the right document was retrieved but gold source labelling is imperfect
     blob = " ".join(d.page_content.lower() for d in docs)
     coverage = (sum(1 for kw in test.keywords if kw.lower() in blob) / len(test.keywords) * 100
                 if test.keywords else 0.0)
@@ -44,6 +50,7 @@ def evaluate_retrieval(test: TestQuestion, k=config.FINAL_K) -> RetrievalEval:
     return RetrievalEval(mrr=mrr, ndcg=ndcg, hit_rate=hit, keyword_coverage=coverage)
 
 
+# Use an LLM as judge to score answer quality against a reference, avoids needing exact string matches
 def evaluate_answer(test: TestQuestion):
     start = time.perf_counter()
     answer, docs = answer_question(test.question)
@@ -65,6 +72,7 @@ Score accuracy, completeness, relevance 1 (very poor) to 5 (ideal). If wrong, ac
     return AnswerEval.model_validate_json(resp.choices[0].message.content), latency
 
 
+# Run all eval functions in parallel to avoid waiting on each LLM call sequentially
 def _aggregate(tests, fn, workers=8):
     with ThreadPoolExecutor(max_workers=workers) as ex:
         return list(zip(tests, ex.map(fn, tests)))
@@ -75,6 +83,7 @@ def run(workers=8):
     print(f"Evaluating {len(tests)} tests with the PRO pipeline...\n")
 
     r = _aggregate(tests, evaluate_retrieval, workers)
+    # Break MRR down by category to spot which document types the retriever struggles with
     by_cat = defaultdict(list)
     for t, res in r:
         by_cat[t.category].append(res.mrr)

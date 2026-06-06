@@ -1,5 +1,3 @@
-# Import necessary libraries
-
 import json, hashlib
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -10,31 +8,32 @@ from multiprocessing import Pool
 from tenacity import retry, wait_exponential
 import config
 
+# Back off on rate-limit or transient API errors rather than failing the whole ingestion run
 WAIT = wait_exponential(multiplier=1, min=10, max=240)
 WORKERS = 4
 openai = OpenAI()
 
-# Chunk model definition
+# Enforce structured output so the LLM returns clean, parseable chunks rather than free text
 class Chunk(BaseModel):
     headline: str = Field(description="A brief heading likely to be surfaced in a query")
     summary: str = Field(description="A few sentences summarizing this chunk")
     original_text: str = Field(description="The original text of this chunk, exactly as-is")
 
+    # Combine headline + summary + original text so each chunk is self-contained for both retrieval and reading
     def as_result(self, document):
         return {
             "page_content": f"{self.headline}\n\n{self.summary}\n\n{self.original_text}",
             "metadata": {"source": document["source"], "type": document["type"]},
         }
 
-# Chunks model definition
+# Wrap the list of chunks so Pydantic can validate the full LLM response in one call
 class Chunks(BaseModel):
     chunks: list[Chunk]
 
 
-# Function to fetch documents from the knowledge base
+# Walk every subfolder so all document categories (products, contracts, employees, company) are ingested
 def fetch_documents():
     documents = []
-
     for folder in config.KB_PATH.iterdir():
         if not folder.is_dir():
             continue
@@ -44,11 +43,11 @@ def fetch_documents():
                 "source": file.relative_to(config.KB_PATH).as_posix(),
                 "text": file.read_text(encoding="utf-8"),
             })
-        
     print(f"Loaded {len(documents)} documents")
     return documents
-    
-# Chunking instruction template
+
+
+# Tell the LLM how many chunks to aim for based on document length so chunking is proportional
 def _make_prompt(document):
     how_many = (len(document["text"]) // config.AVERAGE_CHUNK_SIZE) + 1
     return f"""
@@ -64,9 +63,10 @@ Document:
 {document["text"]}
 
 Respond with the chunks.
-""" 
+"""
 
-# Process a single document to create chunks, with caching and retry logic
+
+# Cache by content hash so unchanged documents are never re-chunked, saving API cost on re-ingestion
 @retry(wait=WAIT)
 def process_document(document):
     key = hashlib.sha1((document["source"] + document["text"]).encode()).hexdigest()
@@ -82,7 +82,8 @@ def process_document(document):
     cached.write_text(json.dumps(results))
     return results
 
-# Create chunks for all documents using multiprocessing
+
+# Parallelise chunking across documents to reduce total ingestion time
 def create_chunks(documents):
     chunks = []
     with Pool(processes=WORKERS) as pool:
@@ -91,8 +92,7 @@ def create_chunks(documents):
     return chunks
 
 
-
-# Create embeddings for the chunks and store them in a vector database
+# Rebuild the collection from scratch each run so stale chunks from deleted documents don't persist
 def create_embeddings(chunks):
     chroma = PersistentClient(path=config.DB_NAME)
     if config.COLLECTION in [c.name for c in chroma.list_collections()]:
@@ -103,6 +103,7 @@ def create_embeddings(chunks):
     metas = [c["metadata"] for c in chunks]
     ids = [str(i) for i in range(len(chunks))]
 
+    # Batch embedding calls to stay within API request size limits
     for i in range(0, len(texts), config.EMBED_BATCH):
         sl = slice(i, i + config.EMBED_BATCH)
         vectors = [e.embedding for e in
